@@ -1,0 +1,13 @@
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.env.*
+*.env
+dist/
+build/
+.DS_Store
+*.log
+.catalystrc
+catalyst-config.json
