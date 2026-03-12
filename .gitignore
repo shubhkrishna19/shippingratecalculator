@@ -17,3 +17,4 @@ app_settings.json
 OneDrive_2026-03-10.zip
 Order info Templates - Aug25/
 functions/
+.env*.local
