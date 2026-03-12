@@ -1,123 +1,107 @@
-import pytest
 import sys
-import os
+import time
+from pathlib import Path
 
-# Add the function directory to path so rate_calculator can be imported
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "functions", "shipping-calc-new"))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
-from rate_calculator import (
-    calculate_affinity,
-    calculate_bluedart,
-    calculate_delhivery_1kg,
-    calculate_delhivery_10kg,
-    calculate_delhivery_20kg,
-    get_pincodes_data,
-    find_best_rate,
-)
+from batch_service import BatchProcessor
+from calculator_service import CalculatorService
+from fastapi.testclient import TestClient
+from main import app
+from order_parsers import parse_upload
+from sku_resolver import DimensionsCatalog
 
 
-class TestRateCalculator:
-    """Test cases for shipping rate calculator"""
+FIXTURE_ROOT = PROJECT_ROOT / "tests" / "fixtures"
+client = TestClient(app)
 
-    @pytest.fixture
-    def pincodes(self):
-        """Load pincodes data"""
-        return get_pincodes_data()
 
-    def test_pincode_500001_zones(self, pincodes):
-        """Test zone lookups for pincode 500001 (Hyderabad)"""
-        pincode_info = pincodes.get(500001)
-        assert pincode_info is not None, "Pincode 500001 should exist"
+def test_manual_calculation_500001():
+    service = CalculatorService()
+    result = service.calculate_manual(85, 500001)
 
-        assert pincode_info['delhivery_zone'] == 'C2', "Delhivery zone should be C2"
-        assert pincode_info['bluedart_zone'] == 'SOUTH', "Bluedart zone should be SOUTH"
-        assert pincode_info['state_code'] == 'TS', "State code should be TS"
+    assert result["success"] is True
+    assert result["best_carrier"] == "D(20 kg)"
+    assert result["best_price"] == 1300
+    assert result["zones"]["delhivery_zone"] == "C2"
 
-    def test_affinity_calculation(self, pincodes):
-        """Test Affinity calculation for weight=85, pincode=500001"""
-        # Pincode 500001 -> State TS -> Affinity zone = South 1
-        # From STATE_TO_AFFINITY_ZONE: TS -> South 1
-        # Rate: 14 (per kg for South 1)
-        # Formula: freight = max(max(85, 20) * 14, 300) = max(1190, 300) = 1190
-        # total = freight + 100 + freight*0.15 = 1190 + 100 + 178.5 = 1468.5
-        result = calculate_affinity(85, pincodes, pincode=500001)
-        assert abs(result - 1468.5) < 0.01, f"Expected 1468.5, got {result}"
 
-    def test_bluedart_calculation(self, pincodes):
-        """Test Bluedart calculation for weight=85, pincode=500001"""
-        # Pincode 500001 -> Bluedart zone = SOUTH
-        # Rate: 12.7 (per kg for South)
-        # Formula: freight = 12.7 * max(85, 10) = 12.7 * 85 = 1079.5
-        # total = (1079.5 + 75 + 75) * 1.17 = 1229.5 * 1.17 = 1438.515
-        result = calculate_bluedart(85, pincodes, pincode=500001)
-        assert abs(result - 1438.515) < 0.01, f"Expected 1438.515, got {result}"
+def test_dimensions_catalog_direct_and_alias_lookup():
+    catalog = DimensionsCatalog(cleanup_suffixes=["__WH", "_WH", "-R1", "_"])
 
-    def test_delhivery_1kg_calculation(self, pincodes):
-        """Test Delhivery 1KG calculation for weight=85, pincode=500001"""
-        # Pincode 500001 -> Delhivery zone = C2
-        # Rate: base=66, additional=29
-        # Formula: 66 + (85 - 1) * 29 = 66 + 84 * 29 = 66 + 2436 = 2502
-        result = calculate_delhivery_1kg(85, pincodes, pincode=500001)
-        assert result == 2502, f"Expected 2502, got {result}"
+    direct = catalog.resolve(["SR-CLM-T"])
+    assert direct.matched is True
+    assert direct.mtp_sku == "SR-CLM-T"
+    assert direct.weight_kg == 30.0
 
-    def test_delhivery_10kg_calculation(self, pincodes):
-        """Test Delhivery 10KG calculation for weight=85, pincode=500001"""
-        # Pincode 500001 -> Delhivery zone = C2
-        # Rate: flat_10kg=240, additional_per_kg=19
-        # Formula: 240 + (85 - 10) * 19 = 240 + 75 * 19 = 240 + 1425 = 1665
-        result = calculate_delhivery_10kg(85, pincodes, pincode=500001)
-        assert result == 1665, f"Expected 1665, got {result}"
+    child_alias = catalog.resolve(["SR-CLM-TM"])
+    assert child_alias.matched is True
+    assert child_alias.mtp_sku == "SR-CLM-T"
+    assert child_alias.matched_by == "alias:child_sku"
 
-    def test_delhivery_20kg_calculation(self, pincodes):
-        """Test Delhivery 20KG calculation for weight=85, pincode=500001"""
-        # Pincode 500001 -> Delhivery zone = C2
-        # Rate for C2: flat_20kg=330, rate_20_50=16, rate_50_100=14, rate_100_plus=12
-        # Weight 85kg falls in 50-100kg slab
-        # Formula: flat_20kg + 30*rate_20_50 + (weight-50)*rate_50_100
-        # 330 + 30*16 + 35*14 = 330 + 480 + 490 = 1300
-        result = calculate_delhivery_20kg(85, pincodes, pincode=500001)
-        assert result == 1300, f"Expected 1300, got {result}"
+    ul_alias = catalog.resolve(["FVSGSR11BM51569"])
+    assert ul_alias.matched is True
+    assert ul_alias.mtp_sku == "SR-CLM-T"
+    assert ul_alias.matched_by == "alias:ul"
 
-    def test_find_best_rate(self, pincodes):
-        """Test finding the best carrier rate"""
-        rates = {
-            'Affinity': 1468.5,
-            'Bluedart': 1438.515,
-            'D(1 Kg)': 2502,
-            'D(10 kg)': 1665,
-            'D(20 kg)': 1300,
-        }
-        best_carrier, best_price = find_best_rate(rates)
-        assert best_carrier == 'D(20 kg)', f"Best carrier should be D(20 kg)"
-        assert best_price == 1300, f"Best price should be 1300"
 
-    def test_full_rate_calculation(self, pincodes):
-        """Test full rate calculation for weight=85, pincode=500001"""
-        weight = 85
-        pincode = 500001
+def test_parse_amazon_all_orders():
+    sample_file = FIXTURE_ROOT / "amazon_all_orders_sample.txt"
+    parsed = parse_upload(sample_file.name, sample_file.read_bytes())
 
-        affinity = calculate_affinity(weight, pincodes, pincode=pincode)
-        bluedart = calculate_bluedart(weight, pincodes, pincode=pincode)
-        delhivery_1kg = calculate_delhivery_1kg(weight, pincodes, pincode=pincode)
-        delhivery_10kg = calculate_delhivery_10kg(weight, pincodes, pincode=pincode)
-        delhivery_20kg = calculate_delhivery_20kg(weight, pincodes, pincode=pincode)
+    assert parsed.parser_key == "amazon_all_orders"
+    assert parsed.source_platform == "Amazon"
+    assert parsed.rows[0]["sku"] == "SR-CLM-TM"
+    assert parsed.rows[0]["pincode"] == "142022"
 
-        rates = {
-            'Affinity': affinity,
-            'Bluedart': bluedart,
-            'D(1 Kg)': delhivery_1kg,
-            'D(10 kg)': delhivery_10kg,
-            'D(20 kg)': delhivery_20kg,
-        }
 
-        # Verify each rate
-        assert abs(affinity - 1468.5) < 0.01
-        assert abs(bluedart - 1438.515) < 0.01
-        assert delhivery_1kg == 2502
-        assert delhivery_10kg == 1665
-        assert delhivery_20kg == 1300
+def test_batch_processor_recovers_aliases_from_sample_files():
+    calculator = CalculatorService()
+    catalog = DimensionsCatalog(cleanup_suffixes=["__WH", "_WH", "-R1", "_R1", "-CL", "_"])
+    processor = BatchProcessor(calculator, catalog)
 
-        # Find best
-        best_carrier, best_price = find_best_rate(rates)
-        assert best_carrier == 'D(20 kg)'
-        assert best_price == 1300
+    amazon_sample = (FIXTURE_ROOT / "amazon_all_orders_sample.txt").read_bytes()
+    ul_sample = (FIXTURE_ROOT / "urban_ladder_sample.csv").read_bytes()
+
+    result = processor.process_uploads(
+        [
+            {"name": "amazon-sample.txt", "content": amazon_sample},
+            {"name": "urban-ladder-sample.csv", "content": ul_sample},
+        ]
+    )
+
+    assert result["summary"]["total_files"] == 2
+    assert result["summary"]["total_rows"] > 0
+    assert result["summary"]["successful_rows"] > 0
+
+    first_success = next(row for row in result["rows"] if not row["exception_reason"])
+    assert first_success["resolved_mtp_sku"] != ""
+    assert first_success["best_carrier"] != ""
+
+
+def test_api_job_runs_async_and_completes():
+    sample_file = FIXTURE_ROOT / "amazon_all_orders_sample.txt"
+    response = client.post(
+        "/api/jobs",
+        files={"files": (sample_file.name, sample_file.read_bytes(), "text/plain")},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] in {"completed", "processing"}
+
+    job_id = payload["job_id"]
+    if payload["status"] == "processing":
+        for _ in range(20):
+            status_response = client.get(f"/api/jobs/{job_id}")
+            status_payload = status_response.json()
+            if status_payload["status"] == "completed":
+                break
+            time.sleep(0.1)
+        else:
+            raise AssertionError("Async batch job did not complete in time")
+
+    rows_response = client.get(f"/api/jobs/{job_id}/rows?page=1&page_size=10")
+    rows_payload = rows_response.json()
+    assert rows_payload["status"] == "completed"
+    assert rows_payload["total_rows"] > 0

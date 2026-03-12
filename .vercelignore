@@ -1,0 +1,12 @@
+node_modules
+.git
+.runtime
+.pytest_cache
+__pycache__
+dist
+build
+docs
+tests
+functions
+OneDrive_2026-03-10.zip
+Order info Templates - Aug25

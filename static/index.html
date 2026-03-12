@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shipping Rate Calculator</title>
+    <link rel="stylesheet" href="/static/app.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Bluewud Internal Tool</p>
+          <h1>Shipping Rate Calculator</h1>
+          <p class="subtitle">
+            Manual calculator, batch order normalization, weight resolution, review, and export in one place.
+          </p>
+        </div>
+        <div class="hero-actions">
+          <span id="healthBadge" class="badge">Checking system</span>
+          <span id="jobBadge" class="badge muted">No active batch</span>
+        </div>
+      </header>
+
+      <nav class="tabs">
+        <button class="tab is-active" data-tab="manual">Calculator</button>
+        <button class="tab" data-tab="batch">Batch Upload</button>
+        <button class="tab" data-tab="review">Review & Export</button>
+        <button class="tab" data-tab="settings">Settings</button>
+      </nav>
+
+      <main>
+        <section class="panel is-active" data-panel="manual">
+          <div class="panel-head">
+            <h2>Manual Calculation</h2>
+            <p>Keep the existing single weight + pincode calculator available to the team.</p>
+          </div>
+          <form id="manualForm" class="grid two">
+            <label>
+              <span>Weight (kg)</span>
+              <input name="weight" type="number" min="0.1" step="0.1" required />
+            </label>
+            <label>
+              <span>Pincode</span>
+              <input name="pincode" type="number" min="100000" max="999999" required />
+            </label>
+            <div class="actions full">
+              <button type="submit">Calculate</button>
+            </div>
+          </form>
+          <div id="manualResult" class="result-grid"></div>
+        </section>
+
+        <section class="panel" data-panel="batch">
+          <div class="panel-head">
+            <h2>Batch Upload</h2>
+            <p>Upload one or many platform files. Format detection is automatic.</p>
+          </div>
+          <form id="batchForm" class="grid two">
+            <label class="file-field full">
+              <span>Order Files</span>
+              <input id="batchFiles" name="files" type="file" multiple required />
+            </label>
+            <div class="actions full">
+              <button type="submit">Process Files</button>
+            </div>
+          </form>
+          <div id="batchSummary" class="summary"></div>
+        </section>
+
+        <section class="panel" data-panel="review">
+          <div class="panel-head">
+            <h2>Review & Export</h2>
+            <p>Edit weight or carrier on rows before generating the final sheet.</p>
+          </div>
+
+          <div class="toolbar">
+            <div class="toolbar-group">
+              <label>
+                <span>Export Format</span>
+                <select id="exportFormat">
+                  <option value="xlsx">XLSX</option>
+                  <option value="csv">CSV</option>
+                </select>
+              </label>
+              <button id="downloadBtn" type="button">Download Output</button>
+            </div>
+            <div class="toolbar-group">
+              <label>
+                <span>Page Size</span>
+                <select id="pageSizeSelect">
+                  <option value="50">50</option>
+                  <option value="100" selected>100</option>
+                  <option value="200">200</option>
+                </select>
+              </label>
+              <button id="refreshRowsBtn" type="button">Refresh Page</button>
+            </div>
+          </div>
+
+          <form id="bulkCarrierForm" class="grid three muted-card">
+            <label>
+              <span>MTP SKU</span>
+              <input id="bulkMtpSku" name="mtpSku" type="text" placeholder="SR-CLM-T" required />
+            </label>
+            <label>
+              <span>Carrier</span>
+              <select id="bulkCarrier" name="carrier" required>
+                <option value="Affinity">Affinity</option>
+                <option value="Bluedart">Bluedart</option>
+                <option value="D(1 Kg)">D(1 Kg)</option>
+                <option value="D(10 kg)">D(10 kg)</option>
+                <option value="D(20 kg)">D(20 kg)</option>
+              </select>
+            </label>
+            <div class="actions">
+              <button type="submit">Apply To Same MTP SKU</button>
+            </div>
+          </form>
+
+          <div id="reviewSummary" class="summary"></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Platform</th>
+                  <th>Order</th>
+                  <th>SKU</th>
+                  <th>MTP SKU</th>
+                  <th>Product</th>
+                  <th>Qty</th>
+                  <th>Pincode</th>
+                  <th>Weight</th>
+                  <th>Carrier</th>
+                  <th>Rate</th>
+                  <th>Zone</th>
+                  <th>Issue</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="rowsBody"></tbody>
+            </table>
+          </div>
+          <div class="pager">
+            <button id="prevPageBtn" type="button">Previous</button>
+            <span id="pageMeta">Page 0 / 0</span>
+            <button id="nextPageBtn" type="button">Next</button>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="settings">
+          <div class="panel-head">
+            <h2>Settings</h2>
+            <p>Keep the workbook assets visible and tweak the SKU cleanup rules without editing code.</p>
+          </div>
+
+          <form id="settingsForm" class="grid two">
+            <label>
+              <span>Default Export Format</span>
+              <select name="default_export_format">
+                <option value="xlsx">XLSX</option>
+                <option value="csv">CSV</option>
+              </select>
+            </label>
+            <label>
+              <span>Preview Page Size</span>
+              <input name="preview_page_size" type="number" min="25" max="500" step="25" />
+            </label>
+            <label class="full">
+              <span>SKU Cleanup Suffixes</span>
+              <textarea
+                name="sku_cleanup_suffixes"
+                rows="5"
+                placeholder="One suffix per line, for example _WH or -R1"
+              ></textarea>
+            </label>
+            <div class="actions full">
+              <button type="submit">Save Settings</button>
+            </div>
+          </form>
+
+          <div id="assetCards" class="asset-grid"></div>
+        </section>
+      </main>
+    </div>
+
+    <template id="assetCardTemplate">
+      <form class="asset-card">
+        <div>
+          <h3 class="asset-title"></h3>
+          <p class="asset-meta"></p>
+        </div>
+        <input class="asset-type" type="hidden" />
+        <input class="asset-input" type="file" required />
+        <button type="submit">Replace File</button>
+      </form>
+    </template>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

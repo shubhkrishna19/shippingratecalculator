@@ -1,0 +1,11 @@
+{
+  "project": {
+    "name": "salestrends"
+  },
+  "appsail": [
+    {
+      "name": "shipping-rate-calculator",
+      "source": "."
+    }
+  ]
+}

@@ -11,3 +11,9 @@ build/
 *.log
 .catalystrc
 catalyst-config.json
+.runtime/
+app_settings.json
+.vercel/
+OneDrive_2026-03-10.zip
+Order info Templates - Aug25/
+functions/
