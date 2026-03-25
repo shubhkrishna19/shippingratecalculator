@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/**/*.py": {
+      "maxDuration": 300,
+      "excludeFiles": "{tests/**,__pycache__/**,node_modules/**,dist/**,build/**,.git/**,docs/**,.claude/**,OneDrive_2026-03-10.zip,Order info Templates - Aug25/**,functions/**}"
+    }
+  },
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/api/index.py"
+    }
+  ]
+}
