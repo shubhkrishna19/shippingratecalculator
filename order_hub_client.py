@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import json
 from typing import Any
 
 import requests
@@ -17,8 +18,7 @@ class OrderHubClient:
         if statuses:
             params["statuses"] = ",".join(statuses)
         response = requests.get(f"{self.base_url}/api/shipping/orders", params=params, timeout=120)
-        response.raise_for_status()
-        return response.json()
+        return self._decode_json_response(response, endpoint="/api/shipping/orders")
 
     def writeback_rows(self, rows: list[dict[str, Any]], export_format: str = "xlsx") -> dict[str, Any]:
         payload_rows = []
@@ -70,8 +70,7 @@ class OrderHubClient:
             },
             timeout=180,
         )
-        response.raise_for_status()
-        data = response.json()
+        data = self._decode_json_response(response, endpoint="/api/shipping/writeback")
         export_batch = data.get("export_batch") or {}
         if export_batch.get("batch_id"):
             data["download_url"] = f"{self.base_url}/api/shipping/export/{export_batch['batch_id']}"
@@ -90,11 +89,27 @@ class OrderHubClient:
             },
             timeout=240,
         )
-        response.raise_for_status()
-        data = response.json()
+        data = self._decode_json_response(response, endpoint="/api/shipping/import")
         export_batch = data.get("export_batch") or {}
         if export_batch.get("batch_id"):
             data["download_url"] = f"{self.base_url}/api/shipping/export/{export_batch['batch_id']}"
         data.setdefault("mode", "import")
         return data
+
+    @staticmethod
+    def _decode_json_response(response: requests.Response, *, endpoint: str) -> dict[str, Any]:
+        response.raise_for_status()
+        raw = response.text.strip()
+        if not raw:
+            raise ValueError(
+                f"Order Hub returned an empty response from {endpoint}. "
+                "Verify the target OrderHub deployment is healthy and returning JSON."
+            )
+        try:
+            return response.json()
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Order Hub returned a non-JSON response from {endpoint}. "
+                "Verify the target OrderHub deployment is healthy and returning JSON."
+            ) from exc
 

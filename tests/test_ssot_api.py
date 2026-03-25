@@ -6,8 +6,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from fastapi.testclient import TestClient
+from unittest.mock import Mock
 
 import main
+from order_hub_client import OrderHubClient
 from settings_store import SettingsStore
 
 
@@ -190,6 +192,20 @@ def test_import_endpoint_uses_order_hub_client(monkeypatch):
     assert payload["imported_rows"] == 1
     assert fake.import_calls[0]["export_format"] == "xlsx"
     assert fake.import_calls[0]["rows"][0]["order_id"] == "AMZ-2001"
+
+
+def test_order_hub_client_empty_response_error_is_clear():
+    response = Mock()
+    response.raise_for_status.return_value = None
+    response.text = ""
+
+    try:
+        OrderHubClient._decode_json_response(response, endpoint="/api/shipping/orders")
+    except ValueError as exc:
+        assert "empty response" in str(exc)
+        assert "/api/shipping/orders" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for empty response")
 
 
 
