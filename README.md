@@ -86,6 +86,54 @@ Catalyst notes:
 - the app code has been adjusted to stay compatible with that runtime
 - `appsail_main.py` respects `X_ZOHO_CATALYST_LISTEN_PORT`
 
+## OrderHub integration
+
+The app can now pull live order lines from OrderHub and write reviewed shipping allocations back to the shared SSOT.
+
+Runtime config options:
+
+- UI/settings file: order_hub_base_url
+- Environment fallback: ORDER_HUB_BASE_URL
+
+Recommended deploy setup:
+
+- set ORDER_HUB_BASE_URL in AppSail
+- keep the UI field available for internal override if needed
+- use Load from Zoho SSOT for review batches
+- use Write Back to SSOT after review to persist carrier/rate decisions centrally
+- deploy checklist and smoke test: `docs/appsail_orderhub_readiness.md`
+
+Verification:
+
+- `tests\\test_calculator.py`
+- `tests\\test_ssot_api.py`
+
+Current local verification result: 9 passed
+## OrderHub Deploy Readiness
+
+Required runtime env var for AppSail:
+
+- `ORDER_HUB_BASE_URL` = base URL of the target OrderHub environment, with no trailing slash
+- current development value used for verification: `https://orderhub.development.catalystappsail.com`
+
+No additional auth env vars are required in this app today because OrderHub shipping endpoints are reached directly by base URL.
+
+Recommended post-deploy smoke test sequence:
+
+1. Open `GET /api/health` on the deployed AppSail URL and confirm `order_hub_configured=true`.
+2. Call `POST /api/jobs/ssot` with `{ "limit": 1, "statuses": ["Pending"] }` and confirm `200`, `job_mode`, and `summary.total_rows >= 1`.
+3. In the UI, use `Load from Zoho SSOT` and confirm at least one row resolves to a `resolved_mtp_sku` and a `best_carrier`.
+4. Use `POST /api/writeback` only with a single known-safe dev row, then confirm `200`, `updated_rows >= 1`, and that OrderHub returns an `export_batch.batch_id`.
+5. Re-open the same item in OrderHub and confirm the reviewed carrier/rate fields landed as expected.
+
+Deploy-ready checklist:
+
+- AppSail env var `ORDER_HUB_BASE_URL` set to the intended OrderHub environment
+- `app_settings.json` does not contain a conflicting non-empty `order_hub_base_url` override
+- `python scripts/package_appsail.py` completes successfully before deploy
+- `tests/test_calculator.py` and `tests/test_ssot_api.py` pass in the project `.venv`
+- Smoke-test steps above are run immediately after deploy
+
 ## Operational Caveat
 
 Row review data and editable settings are currently stored in local files:
@@ -114,3 +162,4 @@ For hardened Zoho production, the next step is moving:
 - `PATCH /api/jobs/{job_id}/rows/{row_id}`
 - `POST /api/jobs/{job_id}/bulk-carrier`
 - `GET /api/jobs/{job_id}/export`
+

@@ -51,6 +51,36 @@ class BatchProcessor:
         self.calculator = calculator
         self.catalog = catalog
 
+    def process_rows(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        enriched_rows: list[dict[str, Any]] = []
+        seen_keys: set[str] = set()
+        duplicates = 0
+
+        for row in rows:
+            dedupe_key = self._dedupe_key(row)
+            if dedupe_key in seen_keys:
+                duplicates += 1
+                continue
+            seen_keys.add(dedupe_key)
+            enriched_rows.append(self._enrich_row(dict(row), row_id=len(enriched_rows)))
+
+        summary = {
+            "total_files": 1,
+            "total_rows": len(enriched_rows),
+            "duplicate_rows_skipped": duplicates,
+            "exception_rows": sum(1 for row in enriched_rows if row["exception_reason"]),
+            "successful_rows": sum(1 for row in enriched_rows if not row["exception_reason"]),
+            "files": [
+                {
+                    "file_name": "zoho-ssot",
+                    "platform": "Zoho SSOT",
+                    "parser_key": "order_hub",
+                    "rows_found": len(rows),
+                }
+            ],
+        }
+        return {"summary": summary, "rows": enriched_rows}
+
     def process_uploads(self, uploads: list[dict[str, Any]]) -> dict[str, Any]:
         rows: list[dict[str, Any]] = []
         files_summary: list[dict[str, Any]] = []

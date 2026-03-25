@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 from pathlib import Path
@@ -20,6 +20,7 @@ from asset_sync import export_pincodes_from_workbook, export_rate_calculator_fro
 from batch_service import BatchProcessor
 from calculator_service import CalculatorService
 from job_store import JobStore
+from order_hub_client import OrderHubClient
 from settings_store import SettingsStore
 from sku_resolver import DimensionsCatalog
 
@@ -59,6 +60,7 @@ class ManualCalculationRequest(BaseModel):
 class SettingsUpdateRequest(BaseModel):
     default_export_format: str = Field(pattern="^(csv|xlsx)$")
     preview_page_size: int = Field(ge=25, le=500)
+    order_hub_base_url: str = ""
     sku_cleanup_suffixes: list[str]
 
 
@@ -83,6 +85,15 @@ class ClientExportRequest(BaseModel):
     export_format: str = Field(pattern="^(csv|xlsx)$")
 
 
+class JobWritebackRequest(BaseModel):
+    export_format: str = Field(pattern="^(csv|xlsx)$")
+
+
+class SsotLoadRequest(BaseModel):
+    limit: int = Field(default=250, ge=1, le=2000)
+    statuses: list[str] = []
+
+
 @app.get("/", include_in_schema=False)
 def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
@@ -95,6 +106,7 @@ def health() -> dict[str, Any]:
         "pincodes_loaded": len(calculator.pincodes),
         "dimensions_rows": len(catalog.dimensions),
         "alias_maps_loaded": {name: len(values) for name, values in catalog.alias_maps.items()},
+        "order_hub_configured": bool(settings_store.load().get("order_hub_base_url")),
     }
 
 
@@ -195,6 +207,35 @@ async def create_job(files: list[UploadFile] = File(...)) -> dict[str, Any]:
     }
 
 
+@app.post("/api/jobs/ssot")
+def create_ssot_job(payload: SsotLoadRequest) -> dict[str, Any]:
+    client = _get_order_hub_client()
+    try:
+        source_rows = client.fetch_shipping_orders(limit=payload.limit, statuses=payload.statuses)
+        processed = processor.process_rows(source_rows["rows"])
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if STATELESS_BATCH_MODE:
+        return {
+            "job_mode": "client",
+            "job_id": None,
+            "status": "completed",
+            "error": "",
+            "summary": processed["summary"],
+            "rows": [_public_row(row) for row in processed["rows"]],
+        }
+
+    job = job_store.create_completed(processed)
+    return {
+        "job_mode": "server",
+        "job_id": job["job_id"],
+        "status": job["status"],
+        "error": job.get("error", ""),
+        "summary": job["summary"],
+    }
+
+
 @app.post("/api/rows/recalculate")
 def recalculate_client_row(payload: ClientRowUpdateRequest) -> dict[str, Any]:
     updated = processor.update_row(
@@ -274,6 +315,54 @@ def export_client_rows(payload: ClientExportRequest) -> Response:
     return Response(content=content, media_type=media_type, headers=headers)
 
 
+@app.post("/api/jobs/{job_id}/writeback")
+def writeback_job(job_id: str, payload: JobWritebackRequest) -> dict[str, Any]:
+    client = _get_order_hub_client()
+    try:
+        job = job_store.get(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found.") from exc
+    if job["status"] != "completed":
+        raise HTTPException(status_code=409, detail="Job is still processing.")
+    try:
+        return client.writeback_rows(job["rows"], export_format=payload.export_format)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/jobs/{job_id}/import-to-ssot")
+def import_job_to_ssot(job_id: str, payload: JobWritebackRequest) -> dict[str, Any]:
+    client = _get_order_hub_client()
+    try:
+        job = job_store.get(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found.") from exc
+    if job["status"] != "completed":
+        raise HTTPException(status_code=409, detail="Job is still processing.")
+    try:
+        return client.import_rows(job["rows"], export_format=payload.export_format)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/writeback")
+def writeback_client_rows(payload: ClientExportRequest) -> dict[str, Any]:
+    client = _get_order_hub_client()
+    try:
+        return client.writeback_rows(payload.rows, export_format=payload.export_format)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/import-to-ssot")
+def import_client_rows_to_ssot(payload: ClientExportRequest) -> dict[str, Any]:
+    client = _get_order_hub_client()
+    try:
+        return client.import_rows(payload.rows, export_format=payload.export_format)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 def _asset_info(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {"name": path.name, "exists": False}
@@ -300,6 +389,15 @@ def _public_row(row: dict[str, Any]) -> dict[str, Any]:
     return public
 
 
+def _get_order_hub_client() -> OrderHubClient:
+    order_hub_base_url = settings_store.load().get("order_hub_base_url", "")
+    try:
+        return OrderHubClient(order_hub_base_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.exception_handler(FileNotFoundError)
 def handle_missing_file(_, exc: FileNotFoundError) -> JSONResponse:
     return JSONResponse(status_code=500, content={"detail": str(exc)})
+

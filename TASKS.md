@@ -13,7 +13,8 @@ Always work on a branch: feat/[agent]-T[id]-[slug]. Never commit directly to mai
 - [ ] [T-005] Add logging for each rate calculation request (carrier, weight, pincode, result) (Priority: LOW)
 
 ## IN PROGRESS
-(none)
+- [ ] [T-006] Build batch order import, weight resolution, review UI, settings, and merged export flow - claimed by [CODEX-01] on 2026-03-12
+  - Branch: codex/shipping-T006-batch-import-review-export
 
 ## DONE
 (none yet — project initialized)

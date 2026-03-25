@@ -189,6 +189,27 @@ button:disabled {
   cursor: not-allowed;
 }
 
+.button-link {
+  border-radius: 14px;
+  padding: 12px 18px;
+  background: var(--accent);
+  color: white;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.button-link:hover {
+  transform: translateY(-1px);
+}
+
+.button-link.is-disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 .actions,
 .toolbar,
 .toolbar-group,
@@ -196,6 +217,19 @@ button:disabled {
   display: flex;
   gap: 12px;
   align-items: center;
+}
+
+.toolbar,
+.toolbar-group {
+  flex-wrap: wrap;
+}
+
+.toolbar {
+  justify-content: space-between;
+}
+
+.utility-actions {
+  margin-top: 16px;
 }
 
 .actions.full,

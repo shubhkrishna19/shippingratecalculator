@@ -1,29 +1,31 @@
 import json
-from copy import deepcopy
+import os
 from pathlib import Path
 from typing import Any, Optional
 
 from asset_paths import SETTINGS_FILE
 
 
-DEFAULT_SETTINGS = {
-    "default_export_format": "xlsx",
-    "preview_page_size": 100,
-    "sku_cleanup_suffixes": [
-        "__WH",
-        "_WH",
-        "-R1",
-        "_R1",
-        "-CL",
-        "_CL",
-        "_",
-    ],
-    "asset_files": {
-        "price_workbook": "price shared.xlsx",
-        "dimensions_workbook": "Dimensions Master.xlsx",
-        "sku_alias_workbook": "SKU Aliases, Parent & Child Master Data (1).xlsx",
-    },
-}
+def default_settings() -> dict[str, Any]:
+    return {
+        "default_export_format": "xlsx",
+        "preview_page_size": 100,
+        "order_hub_base_url": os.environ.get("ORDER_HUB_BASE_URL", "").strip(),
+        "sku_cleanup_suffixes": [
+            "__WH",
+            "_WH",
+            "-R1",
+            "_R1",
+            "-CL",
+            "_CL",
+            "_",
+        ],
+        "asset_files": {
+            "price_workbook": "price shared.xlsx",
+            "dimensions_workbook": "Dimensions Master.xlsx",
+            "sku_alias_workbook": "SKU Aliases, Parent & Child Master Data (1).xlsx",
+        },
+    }
 
 
 class SettingsStore:
@@ -32,7 +34,7 @@ class SettingsStore:
 
     def load(self) -> dict[str, Any]:
         if not self.path.exists():
-            return deepcopy(DEFAULT_SETTINGS)
+            return default_settings()
         with self.path.open("r", encoding="utf-8") as handle:
             data = json.load(handle)
         return self._merge_defaults(data)
@@ -49,10 +51,14 @@ class SettingsStore:
         return self.save(current)
 
     def _merge_defaults(self, payload: dict[str, Any]) -> dict[str, Any]:
-        merged = deepcopy(DEFAULT_SETTINGS)
+        merged = default_settings()
         for key, value in payload.items():
+            if key == "order_hub_base_url" and isinstance(value, str) and not value.strip():
+                # Keep the runtime env fallback active unless an explicit override URL is saved.
+                continue
             if isinstance(value, dict) and isinstance(merged.get(key), dict):
                 merged[key].update(value)
             else:
                 merged[key] = value
         return merged
+

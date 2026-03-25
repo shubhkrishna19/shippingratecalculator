@@ -2,6 +2,7 @@ const state = {
   activeTab: "manual",
   jobId: null,
   jobMode: "server",
+  jobOrigin: null,
   jobStatus: null,
   jobSummary: null,
   clientRows: [],
@@ -18,12 +19,16 @@ const jobBadge = document.getElementById("jobBadge");
 const manualForm = document.getElementById("manualForm");
 const manualResult = document.getElementById("manualResult");
 const batchForm = document.getElementById("batchForm");
+const ssotForm = document.getElementById("ssotForm");
 const batchSummary = document.getElementById("batchSummary");
 const reviewSummary = document.getElementById("reviewSummary");
 const rowsBody = document.getElementById("rowsBody");
 const pageMeta = document.getElementById("pageMeta");
 const exportFormat = document.getElementById("exportFormat");
 const downloadBtn = document.getElementById("downloadBtn");
+const writebackBtn = document.getElementById("writebackBtn");
+const importBtn = document.getElementById("importBtn");
+const manualImportLink = document.getElementById("manualImportLink");
 const refreshRowsBtn = document.getElementById("refreshRowsBtn");
 const prevPageBtn = document.getElementById("prevPageBtn");
 const nextPageBtn = document.getElementById("nextPageBtn");
@@ -39,7 +44,10 @@ tabs.forEach((tab) => {
 
 manualForm.addEventListener("submit", onManualSubmit);
 batchForm.addEventListener("submit", onBatchSubmit);
+ssotForm.addEventListener("submit", onSsotSubmit);
 downloadBtn.addEventListener("click", onDownload);
+writebackBtn.addEventListener("click", onWriteback);
+importBtn.addEventListener("click", onImportToSsot);
 refreshRowsBtn.addEventListener("click", loadCurrentPage);
 prevPageBtn.addEventListener("click", () => changePage(-1));
 nextPageBtn.addEventListener("click", () => changePage(1));
@@ -66,7 +74,8 @@ function switchTab(tabName) {
 
 async function loadHealth() {
   const data = await request("/api/health");
-  healthBadge.textContent = `Healthy - ${data.pincodes_loaded.toLocaleString()} pincodes`;
+  const ssotState = data.order_hub_configured ? "SSOT linked" : "SSOT not configured";
+  healthBadge.textContent = `Healthy - ${data.pincodes_loaded.toLocaleString()} pincodes - ${ssotState}`;
 }
 
 async function loadSettings() {
@@ -74,10 +83,12 @@ async function loadSettings() {
   state.settings = data.settings;
   settingsForm.default_export_format.value = data.settings.default_export_format;
   settingsForm.preview_page_size.value = data.settings.preview_page_size;
+  settingsForm.order_hub_base_url.value = data.settings.order_hub_base_url || "";
   settingsForm.sku_cleanup_suffixes.value = data.settings.sku_cleanup_suffixes.join("\n");
   exportFormat.value = data.settings.default_export_format;
   pageSizeSelect.value = String(data.settings.preview_page_size);
   state.pageSize = data.settings.preview_page_size;
+  updateOrderHubLinks();
   renderAssetCards(data.assets);
 }
 
@@ -140,8 +151,32 @@ async function onBatchSubmit(event) {
   Array.from(files).forEach((file) => formData.append("files", file));
 
   const data = await request("/api/jobs", { method: "POST", body: formData });
+  await handleJobCreated(data, "file_batch");
+}
+
+async function onSsotSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(ssotForm);
+  const payload = {
+    limit: Number(formData.get("limit") || 250),
+    statuses: String(formData.get("statuses") || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+  };
+
+  const data = await request("/api/jobs/ssot", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  await handleJobCreated(data, "ssot");
+}
+
+async function handleJobCreated(data, origin) {
   state.jobId = data.job_id || null;
   state.jobMode = data.job_mode || "server";
+  state.jobOrigin = origin;
   state.jobStatus = data.status;
   state.jobSummary = data.summary;
   state.clientRows = data.rows || [];
@@ -357,6 +392,84 @@ async function onDownload() {
   window.location.href = `/api/jobs/${state.jobId}/export?export_format=${exportFormat.value}`;
 }
 
+async function onWriteback() {
+  if (state.jobStatus !== "completed") {
+    return;
+  }
+
+  writebackBtn.disabled = true;
+  try {
+    const payload = { export_format: exportFormat.value };
+    const response =
+      state.jobMode === "client"
+        ? await request("/api/writeback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              rows: state.clientRows,
+              export_format: exportFormat.value,
+            }),
+          })
+        : await request(`/api/jobs/${state.jobId}/writeback`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+    const batchId = response.export_batch?.batch_id;
+    const downloadUrl = response.download_url;
+    alert(
+      batchId
+        ? `SSOT updated for ${response.updated_rows} rows. Export batch ${batchId} is ready.`
+        : `SSOT updated for ${response.updated_rows} rows.`
+    );
+    if (downloadUrl) {
+      window.open(downloadUrl, "_blank", "noopener");
+    }
+  } finally {
+    setJobStatus(state.jobStatus, state.jobSummary);
+  }
+}
+
+async function onImportToSsot() {
+  if (state.jobStatus !== "completed") {
+    return;
+  }
+
+  importBtn.disabled = true;
+  try {
+    const payload = { export_format: exportFormat.value };
+    const response =
+      state.jobMode === "client"
+        ? await request("/api/import-to-ssot", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              rows: state.clientRows,
+              export_format: exportFormat.value,
+            }),
+          })
+        : await request(`/api/jobs/${state.jobId}/import-to-ssot`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+
+    const batchId = response.export_batch?.batch_id;
+    const downloadUrl = response.download_url;
+    alert(
+      batchId
+        ? `Reviewed batch imported to SSOT for ${response.imported_rows} rows. Export batch ${batchId} is ready.`
+        : `Reviewed batch imported to SSOT for ${response.imported_rows} rows.`
+    );
+    if (downloadUrl) {
+      window.open(downloadUrl, "_blank", "noopener");
+    }
+  } finally {
+    setJobStatus(state.jobStatus, state.jobSummary);
+  }
+}
+
 async function changePage(direction) {
   if (state.jobStatus !== "completed") {
     return;
@@ -375,6 +488,7 @@ async function onSettingsSubmit(event) {
   const payload = {
     default_export_format: formData.get("default_export_format"),
     preview_page_size: Number(formData.get("preview_page_size")),
+    order_hub_base_url: String(formData.get("order_hub_base_url") || "").trim(),
     sku_cleanup_suffixes: String(formData.get("sku_cleanup_suffixes"))
       .split("\n")
       .map((item) => item.trim())
@@ -386,6 +500,7 @@ async function onSettingsSubmit(event) {
     body: JSON.stringify(payload),
   });
   await loadSettings();
+  await loadHealth();
 }
 
 async function onAssetUpload(event) {
@@ -427,12 +542,15 @@ async function pollJobUntilReady() {
   }
 }
 
+
 function setJobStatus(status, summary = null, error = "") {
   state.jobStatus = status;
   const rows = summary ? summary.total_rows : 0;
   const isCompleted = status === "completed";
 
   downloadBtn.disabled = !isCompleted;
+  writebackBtn.disabled = !isCompleted || state.jobOrigin !== "ssot";
+  importBtn.disabled = !isCompleted || state.jobOrigin !== "file_batch";
   refreshRowsBtn.disabled = !isCompleted;
   prevPageBtn.disabled = !isCompleted;
   nextPageBtn.disabled = !isCompleted;
@@ -458,7 +576,20 @@ function setJobStatus(status, summary = null, error = "") {
   jobBadge.textContent = `Active batch - ${rows} rows`;
 }
 
+function updateOrderHubLinks() {
+  const baseUrl = String(state.settings?.order_hub_base_url || "").trim().replace(/\/$/, "");
+  const manualImportUrl = baseUrl ? `${baseUrl}/tools/manual-import` : "";
+
+  manualImportLink.href = manualImportUrl || "#";
+  manualImportLink.classList.toggle("is-disabled", !manualImportUrl);
+  manualImportLink.setAttribute("aria-disabled", manualImportUrl ? "false" : "true");
+}
+
 function renderSummary(target, summary) {
+  if (!summary) {
+    target.innerHTML = "";
+    return;
+  }
   target.innerHTML = [
     summaryCard("Rows", summary.total_rows),
     summaryCard("Success", summary.successful_rows),
@@ -618,3 +749,4 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
+

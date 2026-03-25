@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD_DIR = ROOT / "dist" / "appsail"
+BUILD_DIR = ROOT / "dist" / "appsail_deploy"
+VENDOR_DIR = BUILD_DIR / "vendor"
+PIP_PLATFORM_ARGS = [
+    "--platform",
+    "manylinux2014_x86_64",
+    "--implementation",
+    "cp",
+    "--python-version",
+    "39",
+    "--only-binary=:all:",
+]
 
 FILES_TO_COPY = [
     "app.py",
@@ -16,6 +28,7 @@ FILES_TO_COPY = [
     "calculator_service.py",
     "job_store.py",
     "main.py",
+    "order_hub_client.py",
     "order_parsers.py",
     "pincodes.csv",
     "price shared.xlsx",
@@ -57,7 +70,26 @@ def package_appsail_bundle() -> Path:
         if source.exists():
             shutil.copy2(source, BUILD_DIR / source.name)
 
+    _install_vendor_dependencies()
+
     return BUILD_DIR
+
+
+def _install_vendor_dependencies() -> None:
+    VENDOR_DIR.mkdir(parents=True, exist_ok=True)
+    command = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "--target",
+        str(VENDOR_DIR),
+        *PIP_PLATFORM_ARGS,
+        "-r",
+        str(ROOT / "requirements.txt"),
+    ]
+    subprocess.run(command, check=True)
 
 
 def main() -> None:

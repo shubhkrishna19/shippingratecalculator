@@ -54,7 +54,7 @@
         <section class="panel" data-panel="batch">
           <div class="panel-head">
             <h2>Batch Upload</h2>
-            <p>Upload one or many platform files. Format detection is automatic.</p>
+            <p>Upload platform files or pull live order lines from the Zoho SSOT.</p>
           </div>
           <form id="batchForm" class="grid two">
             <label class="file-field full">
@@ -65,6 +65,28 @@
               <button type="submit">Process Files</button>
             </div>
           </form>
+          <form id="ssotForm" class="grid three muted-card">
+            <label>
+              <span>SSOT Row Limit</span>
+              <input name="limit" type="number" min="1" max="2000" step="50" value="250" />
+            </label>
+            <label>
+              <span>Status Filter</span>
+              <input
+                name="statuses"
+                type="text"
+                placeholder="Pending, Ready-to-Ship, Carrier-Assigned"
+              />
+            </label>
+            <div class="actions">
+              <button type="submit">Load from Zoho SSOT</button>
+            </div>
+          </form>
+          <div class="actions full utility-actions">
+            <a id="manualImportLink" class="button-link" href="#" target="_blank" rel="noopener">
+              Manual Order History Import
+            </a>
+          </div>
           <div id="batchSummary" class="summary"></div>
         </section>
 
@@ -84,6 +106,8 @@
                 </select>
               </label>
               <button id="downloadBtn" type="button">Download Output</button>
+              <button id="writebackBtn" type="button">Write Reviewed Results to SSOT</button>
+              <button id="importBtn" type="button">Import Reviewed Batch to SSOT</button>
             </div>
             <div class="toolbar-group">
               <label>
@@ -167,6 +191,14 @@
               <input name="preview_page_size" type="number" min="25" max="500" step="25" />
             </label>
             <label class="full">
+              <span>Order Hub Base URL</span>
+              <input
+                name="order_hub_base_url"
+                type="url"
+                placeholder="https://order-hub.example.com"
+              />
+            </label>
+            <label class="full">
               <span>SKU Cleanup Suffixes</span>
               <textarea
                 name="sku_cleanup_suffixes"
@@ -199,3 +231,4 @@
     <script src="/static/app.js"></script>
   </body>
 </html>
+
